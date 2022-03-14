@@ -9,10 +9,10 @@ def main():
 
 class MotionMP4:
 
-    def __init__(self, path, size, version):
+    def __init__(self, path, size, version, frame_rate):
         self.path = path
         self.size = size
-        self.frame_rate = 20
+        self.frame_rate = frame_rate 
         self.version = version
         self.writer = None
         self.filename = None

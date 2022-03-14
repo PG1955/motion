@@ -48,6 +48,8 @@ class Camera:
 
     def startCamera(self):
         self.cap = cv2.VideoCapture(0)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
         return True
 
     def readFrame(self):

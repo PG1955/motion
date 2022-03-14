@@ -5,7 +5,7 @@ def main():
 class journal:
 
     def __init__(self):
-        pass
+        return self
 
     def write(message):
         print(message)

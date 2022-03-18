@@ -24,11 +24,12 @@ v1.28   10/03/2022  Position graph based on screen resolution.
 v1.29.  11/03/2022  flip image.
 v1.30   12/03/2022  Use on and off to specify boolean switches in the ini file.
 v1.31   14/03/2022  Increase sensitivity and add parameter accumulateWeightedAlpha.
+v1.32   18/03/2022  Performance enhancement and position date.
 
 """
 __author__ = "Peter Goodgame"
 __name__ = "motion"
-__version__ = "v1.31"
+__version__ = "v1.32"
 
 import argparse
 import libcamera
@@ -123,31 +124,33 @@ def display_fps(index):
         display_fps.start = current
 
 
-def write_timestamp(wt_frame):
+def put_timestamp(wt_frame):
     # Write data and time on the video.
     wt_now = datetime.datetime.now()
-    wt_text = wt_now.strftime("%Y/%m/%d %H:%M:%S")
+    wt_text = wt_now.strftime("%Y-%m-%d %H:%M:%S")
     wt_font = cv2.FONT_HERSHEY_SIMPLEX
-    font_scale = 0.50
-    thickness = 2
-    line_type = cv2.LINE_AA
-    text_size, _ = cv2.getTextSize(wt_text, wt_font, font_scale, thickness)
-    line_height = text_size[1] + 5
-    wt_pos = width - 200, height - 10
+    text_size, _ = cv2.getTextSize(wt_text, wt_font, date_font_scale, date_font_thickness)
+    boarder = 5
+    line_height = text_size[1]
+    line_length = text_size[0]
+    if date_position == 'top':
+        wt_pos = width - line_length - boarder, line_height + boarder
+    else:
+        wt_pos = width - line_length - boarder, height - line_height - boarder
+
     cv2.putText(wt_frame,
                 wt_text,
                 wt_pos,
                 wt_font,
-                font_scale,
-                (255, 255, 255),
-                thickness, line_type)
+                date_font_scale,
+                date_rgb,
+                date_font_thickness,
+                cv2.LINE_AA)
     return wt_frame
 
 
 def put_text(pt_frame, pt_text, pt_color):
     position = (10, 60)  # indent and line
-    # font_scale = 0.5
-    # thickness = 1
     font = cv2.FONT_HERSHEY_SIMPLEX
     line_type = cv2.LINE_AA
     text_size, _ = cv2.getTextSize(pt_text, font, statistics_font_scale, statistics_font_thickness)
@@ -334,6 +337,10 @@ if __name__ == "motion":
     statistics = get_parameter(parser, 'statistics', 'off')
     jpg_statistics = get_parameter(parser, 'jpg_statistics', 'off')
     statistics_bgr = get_bgr(get_parameter(parser, 'statistics_bgr', '255,255,255'))
+    date_position = get_parameter(parser, 'date_position', 'bottow')
+    date_font_scale = float(get_parameter(parser, 'date_font_scale', '1.0'))
+    date_font_thickness = int(get_parameter(parser, 'date_font_thickness', '1'))
+    date_rgb = get_bgr(get_parameter(parser, 'statistics_bgr', '255,255,255'))
 
     if args.debug:
         log.info('BOX set to: {}'.format(box))
@@ -406,6 +413,7 @@ if __name__ == "motion":
         trigger_point_cnt = 0
         frames_required = 0
         contour = (0, 0, 0, 0)
+        resize = False
         stabilised = False
 
         # Main process loop.
@@ -431,10 +439,33 @@ if __name__ == "motion":
             if cv2.waitKey(20) & 0xFF == ord('q'):
                 break
 
+            # Stabilise the camera
+            if not stabilised:
+                stabilisation_cnt += 1
+                if stabilisation_cnt == 1:
+                    log.info('Initialisation stabilising')
+                if stabilisation_cnt == stabilise - 1:
+                    log.info('Shape: {}'.format(frame.shape))
+                    print('Frame shape is: {}'.format(frame.shape))
+                    log.info('Initialisation stabilisation completed.')
+                if stabilisation_cnt < stabilise:
+                    # comment out for windows, for linux - cam.returnFrameBuffer(data)
+                    # cam.returnFrameBuffer(data)
+                    continue
+                else:
+                    ah, aw, ac = frame.shape
+                    if aw != width or ah != height:
+                        log.info('Resizing required Size: {} X {}'.format(aw, ah))
+                        resize = True
+                    stabilised = True
+
+            if resize:
+                frame = cv2.resize(frame, (width, height))
+
             if flip:
                 frame = cv2.flip(frame, 1)
 
-            frame = cv2.resize(frame, (width, height))
+            # frame = cv2.resize(frame, (width, height))
 
             if rotate == 180:
                 frame = cv2.rotate(frame, cv2.ROTATE_180)
@@ -468,24 +499,24 @@ if __name__ == "motion":
             # Find contours or continuous white blobs in the image
             contours, hierarchy = cv2.findContours(thresh.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
-            # Stabilise the camera
-            if not stabilised:
-                stabilisation_cnt += 1
-                if stabilisation_cnt == 1:
-                    log.info('Initialisation stabilising')
-                if stabilisation_cnt == stabilise - 1:
-                    log.info('Shape: {}'.format(frame.shape))
-                    print('Frame shape is: {}'.format(frame.shape))
-                    log.info('Initialisation stabilisation completed.')
-                if stabilisation_cnt < stabilise:
-                    # comment out for windows, for linux - cam.returnFrameBuffer(data)
-                    # cam.returnFrameBuffer(data)
-                    continue
-                else:
-                    stabilised = True
+            # # Stabilise the camera
+            # if not stabilised:
+            #     stabilisation_cnt += 1
+            #     if stabilisation_cnt == 1:
+            #         log.info('Initialisation stabilising')
+            #     if stabilisation_cnt == stabilise - 1:
+            #         log.info('Shape: {}'.format(frame.shape))
+            #         print('Frame shape is: {}'.format(frame.shape))
+            #         log.info('Initialisation stabilisation completed.')
+            #     if stabilisation_cnt < stabilise:
+            #         # comment out for windows, for linux - cam.returnFrameBuffer(data)
+            #         # cam.returnFrameBuffer(data)
+            #         continue
+            #     else:
+            #         stabilised = True
 
             # Add timestamp.
-            frame = write_timestamp(frame)
+            frame = put_timestamp(frame)
 
             if display:
                 cv2.imshow('Live Data', frame)

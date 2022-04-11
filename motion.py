@@ -474,8 +474,6 @@ if __name__ == "motion":
             if flip:
                 frame = cv2.flip(frame, 1)
 
-            # frame = cv2.resize(frame, (width, height))
-
             if rotate == 180:
                 frame = cv2.rotate(frame, cv2.ROTATE_180)
             elif rotate == 90:
@@ -497,7 +495,6 @@ if __name__ == "motion":
             # Accumulate the weighted average between the current frame and
             # previous frames, then compute the difference between the current
             # frame and running average
-            #cv2.accumulateWeighted(gray, average, 0.01)
             cv2.accumulateWeighted(gray, average, weighted_alpha)
             frameDelta = cv2.absdiff(gray, cv2.convertScaleAbs(average))
 
@@ -513,7 +510,7 @@ if __name__ == "motion":
 
             if jpg_timelapse_frame > 0 and \
                     recording and \
-                    frames_written == jpg_timelapse_frame:
+                    frames_written == jpg_timelapse_frame + pre_frames:
                 write_timelapse_jpg(frame)
 
             if display:
@@ -606,7 +603,6 @@ if __name__ == "motion":
                     # Write last frame. 
                     writer.write(buffered_frame)
                     mp4.close()
-                    # Use the frame with the most movement jpg_frame = buffered_frame
                     write_jpg(jpg_frame)
                     frames_written = 0
                     peak_movement = 0

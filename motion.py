@@ -25,11 +25,13 @@ v1.29.  11/03/2022  flip image.
 v1.30   12/03/2022  Use on and off to specify boolean switches in the ini file.
 v1.31   14/03/2022  Increase sensitivity and add parameter accumulateWeightedAlpha.
 v1.32   18/03/2022  Performance enhancement and position date.
+v1.33   09/04/2033  Add timelapse output.
+v1.34   10/04/2022  Add display_frame_cnt option for test purposes.
 
 """
 __author__ = "Peter Goodgame"
 __name__ = "motion"
-__version__ = "v1.32"
+__version__ = "v1.34"
 
 import argparse
 import libcamera
@@ -123,6 +125,25 @@ def display_fps(index):
         display_fps.frame_count = 0
         display_fps.start = current
 
+def put_frame_cnt(pfc_frame, frame_count):
+    # Write frame count.
+    wt_font = cv2.FONT_HERSHEY_SIMPLEX
+    text_size, _ = cv2.getTextSize(str(frame_count), wt_font, date_font_scale, date_font_thickness)
+    boarder = 5
+    line_height = text_size[1]
+    line_length = text_size[0]
+    wt_pos = 1 + boarder, line_height + boarder
+
+    cv2.putText(pfc_frame,
+                str(frame_count),
+                wt_pos,
+                wt_font,
+                date_font_scale,
+                date_bgr,
+                date_font_thickness,
+                cv2.LINE_AA)
+    return pfc_frame
+
 
 def put_timestamp(wt_frame):
     # Write data and time on the video.
@@ -143,7 +164,7 @@ def put_timestamp(wt_frame):
                 wt_pos,
                 wt_font,
                 date_font_scale,
-                date_rgb,
+                date_bgr,
                 date_font_thickness,
                 cv2.LINE_AA)
     return wt_frame
@@ -177,11 +198,11 @@ def print_stats(ps_frame):
                 'Trigger frames: {}\n' \
                 'Weighted Alpha: {}\n' \
                 'Total Frames: {}\n' \
-                'Peak Movement: {}\n' \
+                'Peak Movement: {} at frame number {} \n' \
                 'Pre Movement Frames: {}\n' \
                 'Post Movement Frames: {}'.format(
         __version__, exposure, record_fps, playback_fps, trigger_point, trigger_frames_to_check,
-        weighted_alpha, frames_written, peak_movement, pre_frames, post_frames)
+        weighted_alpha, frames_written, peak_movement, peak_movement_frame, pre_frames, post_frames)
     return put_text(ps_frame, ps_stats, statistics_bgr)
 
 
@@ -194,6 +215,15 @@ def write_jpg(wj_frame):
         roi[:] = graph.get_graph()
     print('JPEG Path: {}'.format(jpg_path))
     cv2.imwrite(jpg_path, wj_frame)
+
+def write_timelapse_jpg(wtl_frame):
+    timelapse_path = os.path.join(os.getcwd(), "Motion/timelapse")
+    if not os.path.isdir(timelapse_path):
+        os.mkdir(timelapse_path)
+    timelapse_jpg = os.path.join(timelapse_path, mp4.get_filename().replace('mp4', 'jpg'))
+    # jpg_path = mp4.get_pathname().replace('mp4', 'jpg')
+    print('JPEG Path: {}'.format(timelapse_jpg))
+    cv2.imwrite(timelapse_jpg, wtl_frame)
 
 
 def run_cmd(rc_cmd):
@@ -208,31 +238,6 @@ def get_logger():
     logger.setLevel(logging.DEBUG)
     return logger
 
-
-# def average_movement(am_frame, am_average):
-#     # Convert the image to grayscale & blur the result
-#     am_gray = cv2.cvtColor(am_frame, cv2.COLOR_BGR2GRAY)
-#     am_gray = cv2.GaussianBlur(am_gray, (21, 21), 0)
-#
-#     # If the average has not yet beet calculated
-#     # initialise the variables and read the next frame.
-#     if am_average is None:
-#         am_average = am_gray.copy().astype("float")
-#         am_base_frame = am_frame
-#         # cam.returnFrameBuffer(data)
-#         return [], []
-#
-#     # Accumulate the weighted average between the current frame and
-#     # previous frames, then compute the difference between the current
-#     # frame and running average
-#     cv2.accumulateWeighted(am_gray, am_average, accumulateWeightedAlpha)
-#     am_framedelta = cv2.absdiff(am_gray, cv2.convertScaleAbs(am_average))
-#     # Convert the difference into binary & dilate the result to fill in small holes
-#     am_thresh = cv2.threshold(am_framedelta, 25, 255, cv2.THRESH_BINARY)[1]
-#     am_thresh = cv2.dilate(am_thresh, None, iterations=2)
-#     # Find contours or continuous white blobs in the image
-#     am_contours, am_hierarchy = cv2.findContours(am_thresh.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-#     return am_contours, am_hierarchy
 
 
 def draw_box(db_frame, db_label, db_contour, db_color):
@@ -324,23 +329,26 @@ if __name__ == "motion":
     draw_graph = get_parameter(parser, 'draw_graph', 'off')
     flip = bool(get_parameter(parser, 'flip', 'off'))
     draw_jpg_graph = get_parameter(parser, 'draw_jpg_graph', 'off')
-    box_bgr = get_bgr(get_parameter(parser, 'box_bgr', '255,255,255'))
-    box_jpg_bgr = get_bgr(get_parameter(parser, 'box_jpg_bgr', '255,0,0'))
+    box_bgr = get_bgr(get_parameter(parser, 'box_rgb', '255,255,255'))
+    box_jpg_bgr = get_bgr(get_parameter(parser, 'box_jpg_rgb', '255,255,255'))
     command = get_parameter(parser, 'command', 'None')
     pre_frames = int(get_parameter(parser, 'pre_frames', '0'))
     post_frames = int(get_parameter(parser, 'post_frames', '0'))
     grace_frames = int(get_parameter(parser, 'grace_frames', '0'))
     output_dir = get_parameter(parser, 'output_dir', '.')
     display = get_parameter(parser, 'display', 'off')
+    display_frame_cnt = get_parameter(parser, 'display_frame_cnt', 'off')
     statistics_font_scale = float(get_parameter(parser, 'statistics_font_scale', '1.0'))
     statistics_font_thickness = int(get_parameter(parser, 'statistics_font_thickness', '1'))
     statistics = get_parameter(parser, 'statistics', 'off')
     jpg_statistics = get_parameter(parser, 'jpg_statistics', 'off')
-    statistics_bgr = get_bgr(get_parameter(parser, 'statistics_bgr', '255,255,255'))
+    statistics_bgr = get_bgr(get_parameter(parser, 'statistics_rgb', '255,255,255'))
     date_position = get_parameter(parser, 'date_position', 'bottow')
     date_font_scale = float(get_parameter(parser, 'date_font_scale', '1.0'))
     date_font_thickness = int(get_parameter(parser, 'date_font_thickness', '1'))
-    date_rgb = get_bgr(get_parameter(parser, 'statistics_bgr', '255,255,255'))
+    date_bgr = get_bgr(get_parameter(parser, 'date_rgb', '255,255,255'))
+    jpg_timelapse_frame = int(get_parameter(parser, 'jpg_timelapse_frame', '0'))
+
 
     if args.debug:
         log.info('BOX set to: {}'.format(box))
@@ -389,6 +397,7 @@ if __name__ == "motion":
         frames_required = 0  # Frames requested for this mp4 file
         frames_written = 0  # Frames written to this mp4 file.
         peak_movement = 0  # Monitor the highest level of movement.
+        peak_movement_frame = 0 # Log the frame where peak movement occurs.
         log.info('Initialise MP4 output')
 
         # Initlalise video buffer.
@@ -499,24 +508,13 @@ if __name__ == "motion":
             # Find contours or continuous white blobs in the image
             contours, hierarchy = cv2.findContours(thresh.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
-            # # Stabilise the camera
-            # if not stabilised:
-            #     stabilisation_cnt += 1
-            #     if stabilisation_cnt == 1:
-            #         log.info('Initialisation stabilising')
-            #     if stabilisation_cnt == stabilise - 1:
-            #         log.info('Shape: {}'.format(frame.shape))
-            #         print('Frame shape is: {}'.format(frame.shape))
-            #         log.info('Initialisation stabilisation completed.')
-            #     if stabilisation_cnt < stabilise:
-            #         # comment out for windows, for linux - cam.returnFrameBuffer(data)
-            #         # cam.returnFrameBuffer(data)
-            #         continue
-            #     else:
-            #         stabilised = True
-
             # Add timestamp.
             frame = put_timestamp(frame)
+
+            if jpg_timelapse_frame > 0 and \
+                    recording and \
+                    frames_written == jpg_timelapse_frame:
+                write_timelapse_jpg(frame)
 
             if display:
                 cv2.imshow('Live Data', frame)
@@ -563,6 +561,7 @@ if __name__ == "motion":
                     trigger_record = True
                     if peak_movement < len(contours):
                         peak_movement = len(contours)
+                        peak_movement_frame = frames_written + 1
                         jpg_frame = frame
                         if not contour == (0, 0, 0, 0):
                             box_text = box.replace('<value>', str(len(contours)))
@@ -596,7 +595,8 @@ if __name__ == "motion":
                 if not mp4.is_open():
                     writer = mp4.open()
                     log.info('Opening {name}...'.format(name=mp4.get_filename()))
-                # jpg_frame = buffered_frame
+                if display_frame_cnt:
+                    buffered_frame = put_frame_cnt(buffered_frame, frames_written)
                 frames_required -= 1
                 frames_written += 1
                 writer.write(buffered_frame)
